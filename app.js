@@ -5,7 +5,7 @@ import { openDB, putFile, deleteApp, setMeta, getMeta, getAllMetaKeys } from './
 const GAMES_URL  = 'https://raw.githubusercontent.com/Stratus-Games/Stratus-OS-Apps/refs/heads/main/Games/games.json';
 const GAMES_KEY  = 'eclipse:games-cache';   // localStorage key for offline game list
 const STALE_MS   = 1000 * 60 * 60 * 6;     // re-fetch after 6h
-const APP_BASE   = location.pathname.replace(/[^/]*$/, '');
+const APP_URL    = new URL('./', location.href);
 const IS_IFRAMED = (() => {
   try { return window.self !== window.top; }
   catch { return true; }
@@ -189,8 +189,10 @@ function loadCachedGames() {
 // ─── Service Worker registration ─────────────────────────────────────────────
 async function registerSW() {
   if (!('serviceWorker' in navigator)) return;
+  if (location.protocol === 'file:') return;
+  if (!window.isSecureContext) return;
   try {
-    const reg = await navigator.serviceWorker.register('./sw.js');
+    const reg = await navigator.serviceWorker.register(new URL('./sw.js', location.href).href);
     reg.update();
     let reloadedForNewSW = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -224,7 +226,7 @@ function bindDownloadEmbed() {
 }
 
 function downloadEmbedFile() {
-  const appURL = `${location.origin}${location.pathname}`;
+  const appURL = new URL('./', location.href).href;
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -535,7 +537,7 @@ function bindDetailActions(game) {
 }
 
 function openGameOverlay(game) {
-  const gameUrl = `${APP_BASE}apps/${encodeURIComponent(game.id)}/index.html`;
+  const gameUrl = new URL(`apps/${encodeURIComponent(game.id)}/index.html`, APP_URL).href;
   const rawIcon = (game && typeof game.icon === 'string' && game.icon.trim()) ? game.icon.trim() : '';
   const tabIcon = rawIcon ? new URL(rawIcon, location.href).href : new URL('./Eclipse.png', location.href).href;
   const win = window.open('about:blank', `eclipseGame_${game.id}`, 'width=1280,height=800,left=80,top=40,resizable=yes,scrollbars=no');
