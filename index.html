@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Eclipse</title>
+  <link rel="icon" type="image/png" href="./Eclipse.png">
+  <link rel="apple-touch-icon" href="./Eclipse.png">
+  <meta name="theme-color" content="#080101">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css?v=3">
+</head>
+<body>
+<div id="app">
+
+  <!-- Offline Banner -->
+  <div id="offline-banner" hidden>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+      <line x1="1" y1="1" x2="23" y2="23"/>
+      <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>
+    </svg>
+    <span>You're offline — only installed games are available</span>
+  </div>
+
+  <!-- Topbar -->
+  <header id="topbar">
+    <div id="logo">
+      <span id="logo-text">ECLIPSE</span>
+      <span id="logo-sub">GAMES</span>
+    </div>
+    <button id="download-embed-btn" class="topbar-mini-btn" hidden>Download HTML</button>
+
+    <nav id="nav">
+      <button class="nav-btn" id="nav-store">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Store
+      </button>
+      <button class="nav-btn" id="nav-library">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="3" width="4" height="18"/><rect x="8" y="3" width="4" height="18"/><path d="M14 3l4 18M18 3l4 18"/></svg>
+        Library
+      </button>
+    </nav>
+
+    <div id="topbar-right">
+      <div id="search-wrap" hidden>
+        <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="search-input" type="text" placeholder="Search games, genres…" autocomplete="off" spellcheck="false">
+        <button id="search-clear" class="search-clear" hidden aria-label="Clear search">✕</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Views -->
+  <main id="main">
+    <div id="view-store"   class="view" hidden></div>
+    <div id="view-library" class="view" hidden></div>
+    <div id="view-detail"  class="view view-detail-root" hidden></div>
+  </main>
+</div>
+
+<div id="toast-container" role="status" aria-live="polite"></div>
+<script type="module" src="./app.js?v=3"></script>
+</body>
+</html>
