@@ -58,6 +58,17 @@
   </main>
 </div>
 
+<div id="game-overlay" hidden>
+  <div id="game-overlay-topbar">
+    <div id="game-overlay-title">Now Playing</div>
+    <div id="game-overlay-actions">
+      <button id="game-fullscreen-btn" class="topbar-mini-btn" type="button">Fullscreen</button>
+      <button id="game-close-btn" class="topbar-mini-btn" type="button">Close</button>
+    </div>
+  </div>
+  <iframe id="game-overlay-frame" title="Game Player" allow="fullscreen; autoplay"></iframe>
+</div>
+
 <div id="toast-container" role="status" aria-live="polite"></div>
 <script type="module" src="./app.js?v=3"></script>
 </body>

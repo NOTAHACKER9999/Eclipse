@@ -3,8 +3,8 @@ import { openDB, putFile, deleteApp, setMeta, getMeta, getAllMetaKeys } from './
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const GAMES_URL  = 'https://raw.githubusercontent.com/Stratus-Games/Stratus-OS-Apps/refs/heads/main/Games/games.json';
-const GAMES_KEY  = 'eclipse:games-cache';   // localStorage key for offline game list
-const STALE_MS   = 1000 * 60 * 60 * 6;     // re-fetch after 6h
+const INSTALLED_GAMES_KEY = 'eclipse:installed-games-cache'; // localStorage key for installed game metadata
+const GAMES_FETCH_TIMEOUT_MS = 4500;
 const APP_URL    = new URL('./', location.href);
 const IS_IFRAMED = (() => {
   try { return window.self !== window.top; }
@@ -40,6 +40,7 @@ async function boot() {
   bindNav();
   bindSearch();
   bindDownloadEmbed();
+  bindGameOverlay();
   document.getElementById('nav-store').addEventListener('click',   () => navigate('store'));
   document.getElementById('nav-library').addEventListener('click', () => navigate('library'));
 
@@ -149,41 +150,64 @@ function watchOnline() {
 
 // ─── Game list fetch (with localStorage cache) ────────────────────────────────
 async function fetchGames() {
-  // Try cache first if offline
-  const cached = loadCachedGames();
+  const installedCatalog = loadInstalledGamesCatalog();
 
   if (isOffline) {
-    if (cached) return cached;
-    showToast('Offline and no cached game list available', 'error');
+    if (installedCatalog.length) return installedCatalog;
+    showToast('Offline and no installed games are available', 'error');
     return [];
   }
 
-  // Check if cache is fresh enough
-  const cacheAge = localStorage.getItem('eclipse:games-ts');
-  if (cached && cacheAge && (Date.now() - Number(cacheAge)) < STALE_MS) {
-    return cached; // use fresh cache, don't fetch
-  }
-
-  // Fetch from network
-try {
-  const res   = await fetch(GAMES_URL);
-  const games = await res.json();
-  return games;
-} catch (e) {
-  if (cached) {
-    showToast('Using cached game list (network unavailable)', 'info');
-    return cached;
-  }
-  showToast('Failed to load game list', 'error');
-  return [];
-}
-}
-
-function loadCachedGames() {
   try {
-    const raw = localStorage.getItem(GAMES_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), GAMES_FETCH_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(GAMES_URL, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    const games = await res.json();
+    if (!Array.isArray(games)) throw new Error('Invalid game list payload');
+    return games;
+  } catch (e) {
+    if (installedCatalog.length) {
+      showToast('Using installed games list (network unavailable)', 'info');
+      return installedCatalog;
+    }
+    showToast('Failed to load game list', 'error');
+    return [];
+  }
+}
+
+function loadInstalledGamesCatalog() {
+  try {
+    const raw = localStorage.getItem(INSTALLED_GAMES_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function saveInstalledGamesCatalog(games) {
+  try {
+    if (!Array.isArray(games)) return;
+    localStorage.setItem(INSTALLED_GAMES_KEY, JSON.stringify(games));
+  } catch {}
+}
+
+function rememberInstalledGame(game) {
+  if (!game || game.id == null) return;
+  const catalog = loadInstalledGamesCatalog() || [];
+  const id = String(game.id);
+  const next = [...catalog.filter(g => String(g?.id) !== id), game];
+  saveInstalledGamesCatalog(next);
+}
+
+function forgetInstalledGame(gameId) {
+  const catalog = loadInstalledGamesCatalog() || [];
+  const id = String(gameId);
+  const next = catalog.filter(g => String(g?.id) !== id);
+  saveInstalledGamesCatalog(next);
 }
 
 // ─── Service Worker registration ─────────────────────────────────────────────
@@ -536,37 +560,98 @@ function bindDetailActions(game) {
   });
 }
 
-function openGameOverlay(game) {
-  const gameUrl = new URL(`apps/${encodeURIComponent(game.id)}/index.html`, APP_URL).href;
-  const rawIcon = (game && typeof game.icon === 'string' && game.icon.trim()) ? game.icon.trim() : '';
-  const tabIcon = rawIcon ? new URL(rawIcon, location.href).href : new URL('./Eclipse.png', location.href).href;
-  const win = window.open('about:blank', `eclipseGame_${game.id}`, 'width=1280,height=800,left=80,top=40,resizable=yes,scrollbars=no');
-  if (!win) {
-    showToast('Popup blocked. Allow popups for this site.', 'error');
+function canServeInstalledApps() {
+  return location.protocol !== 'file:' && !!navigator.serviceWorker?.controller;
+}
+
+function parseManifestUrls(raw) {
+  return [...raw.matchAll(/"(https?:\/\/[^"]+)"/g)].map(m => m[1]);
+}
+
+async function resolvePlayableURL(game) {
+  if (canServeInstalledApps()) {
+    return new URL(`apps/${encodeURIComponent(game.id)}/index.html`, APP_URL).href;
+  }
+
+  const directCandidates = [game?.play, game?.url, game?.launch, game?.index]
+    .filter(v => typeof v === 'string' && /^https?:\/\//i.test(v.trim()))
+    .map(v => v.trim());
+  if (directCandidates.length) return directCandidates[0];
+
+  if (!game?.install) return null;
+  try {
+    const res = await fetch(game.install);
+    if (!res.ok) return null;
+    const raw = await res.text();
+    const urls = parseManifestUrls(raw);
+    const html = urls.find(u => /\.html?([?#].*)?$/i.test(u));
+    if (html) return html;
+    return urls[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function openGameOverlay(game) {
+  const gameUrl = await resolvePlayableURL(game);
+  if (!gameUrl) {
+    showToast('Cannot resolve a playable URL for this game in file iframe mode.', 'error');
+    return;
+  }
+  const overlay = document.getElementById('game-overlay');
+  const frame = document.getElementById('game-overlay-frame');
+  const title = document.getElementById('game-overlay-title');
+  if (!overlay || !frame || !title) {
+    showToast('Game overlay is unavailable.', 'error');
     return;
   }
 
-  win.document.write(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>${esc(game.name || 'Game')}</title>
-      <link rel="icon" href="${tabIcon}">
-      <link rel="shortcut icon" href="${tabIcon}">
-      <link rel="apple-touch-icon" href="${tabIcon}">
-      <style>
-        html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
-        iframe { width: 100%; height: 100%; border: 0; display: block; background: #000; }
-      </style>
-    </head>
-    <body>
-      <iframe src="${gameUrl}" allow="fullscreen; autoplay"></iframe>
-    </body>
-    </html>
-  `);
-  win.document.close();
+  title.textContent = `Now Playing: ${game.name || 'Game'}`;
+  frame.src = gameUrl;
+  overlay.removeAttribute('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeGameOverlay() {
+  const overlay = document.getElementById('game-overlay');
+  const frame = document.getElementById('game-overlay-frame');
+  if (!overlay || !frame) return;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  frame.src = 'about:blank';
+  overlay.setAttribute('hidden', '');
+  document.body.style.overflow = '';
+}
+
+function toggleGameOverlayFullscreen() {
+  const overlay = document.getElementById('game-overlay');
+  if (!overlay) return;
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  } else {
+    overlay.requestFullscreen?.().catch(() => {});
+  }
+}
+
+function bindGameOverlay() {
+  const closeBtn = document.getElementById('game-close-btn');
+  const fullscreenBtn = document.getElementById('game-fullscreen-btn');
+  const overlay = document.getElementById('game-overlay');
+  if (!closeBtn || !fullscreenBtn || !overlay) return;
+
+  closeBtn.addEventListener('click', closeGameOverlay);
+  fullscreenBtn.addEventListener('click', toggleGameOverlayFullscreen);
+
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) closeGameOverlay();
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !overlay.hasAttribute('hidden')) closeGameOverlay();
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    fullscreenBtn.textContent = document.fullscreenElement ? 'Exit Fullscreen' : 'Fullscreen';
+  });
 }
 
 function refreshDetailActions(game, isInstalled, isInstalling) {
@@ -634,6 +719,7 @@ async function startInstall(game) {
       id: String(game.id), name: game.name, size: game.size, installedAt: Date.now()
     });
     installedIds.add(String(game.id));
+    rememberInstalledGame(game);
     delete activeInstalls[game.id];
 
     setProgress(100, 'Complete!');
@@ -664,6 +750,7 @@ async function confirmUninstall(game) {
   if (!confirm(`Uninstall "${game.name}"? This will free up storage.`)) return;
   await deleteApp(String(game.id));
   installedIds.delete(String(game.id));
+  forgetInstalledGame(game.id);
   refreshDetailActions(game, false, false);
   showToast(`${game.name} uninstalled`, 'info');
 }
@@ -744,4 +831,8 @@ function esc(str) {
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
-boot();
+boot().catch(err => {
+  console.error('Eclipse boot failed:', err);
+  const msg = err && err.message ? err.message : String(err);
+  showToast(`Startup failed: ${msg}`, 'error');
+});
