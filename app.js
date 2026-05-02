@@ -165,21 +165,18 @@ async function fetchGames() {
   }
 
   // Fetch from network
-  try {
-    const res   = await fetch(GAMES_URL);
-    const games = await res.json();
-    // Save to localStorage for offline use
-    localStorage.setItem(GAMES_KEY, JSON.stringify(games));
-    localStorage.setItem('eclipse:games-ts', String(Date.now()));
-    return games;
-  } catch (e) {
-    if (cached) {
-      showToast('Using cached game list (network unavailable)', 'info');
-      return cached;
-    }
-    showToast('Failed to load game list', 'error');
-    return [];
+try {
+  const res   = await fetch(GAMES_URL);
+  const games = await res.json();
+  return games;
+} catch (e) {
+  if (cached) {
+    showToast('Using cached game list (network unavailable)', 'info');
+    return cached;
   }
+  showToast('Failed to load game list', 'error');
+  return [];
+}
 }
 
 function loadCachedGames() {
