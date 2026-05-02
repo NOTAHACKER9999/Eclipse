@@ -2,7 +2,7 @@
 // Intercepts /apps/{id}/... routes → serve from IDB
 // Caches shell files for offline use (but NOT remote game artwork)
 
-const SHELL_CACHE  = 'eclipse-shell-v4';
+const SHELL_CACHE  = 'eclipse-shell-v5';
 const SCOPE_PATH   = new URL(self.registration.scope).pathname;
 const SHELL_FILES  = [
   SCOPE_PATH,
@@ -131,23 +131,56 @@ async function networkFirstShell(request) {
 }
 
 async function serveAppFile(appId, relPath) {
-  // Decode any percent-encoding from the URL
-  const decoded = decodeURIComponent(relPath);
+  // Decode percent-encoding so URL ids/paths match IDB keys.
+  const decodedAppId = decodeURIComponent(appId);
+  const decodedPath = decodeURIComponent(relPath);
+  const appIdCandidates = [...new Set([decodedAppId, appId])];
+  const pathCandidates = [...new Set([
+    decodedPath,
+    decodedPath.replace(/^\.\//, ''),
+    decodedPath.startsWith('./') ? decodedPath : `./${decodedPath}`,
+  ])];
 
   try {
-    let buf = await swGetFile(appId, decoded);
+    let buf = null;
+    let resolvedPath = decodedPath;
+
+    for (const appIdCandidate of appIdCandidates) {
+      for (const pathCandidate of pathCandidates) {
+        buf = await swGetFile(appIdCandidate, pathCandidate);
+        if (buf) {
+          resolvedPath = pathCandidate;
+          break;
+        }
+      }
+      if (buf) break;
+    }
 
     // If not found and path looks like a directory, try index.html
-    if (!buf && !decoded.includes('.')) {
-      const idx = decoded ? decoded.replace(/\/$/, '') + '/index.html' : 'index.html';
-      buf = await swGetFile(appId, idx);
+    if (!buf && !decodedPath.includes('.')) {
+      const idx = decodedPath ? decodedPath.replace(/\/$/, '') + '/index.html' : 'index.html';
+      const idxCandidates = [...new Set([
+        idx,
+        idx.replace(/^\.\//, ''),
+        idx.startsWith('./') ? idx : `./${idx}`,
+      ])];
+      for (const appIdCandidate of appIdCandidates) {
+        for (const idxCandidate of idxCandidates) {
+          buf = await swGetFile(appIdCandidate, idxCandidate);
+          if (buf) {
+            resolvedPath = idxCandidate;
+            break;
+          }
+        }
+        if (buf) break;
+      }
     }
 
     if (buf) {
       return new Response(buf, {
         status: 200,
         headers: {
-          'Content-Type':   mimeFor(decoded),
+          'Content-Type':   mimeFor(resolvedPath),
           'Cache-Control':  'no-cache',
           'Cross-Origin-Opener-Policy':   'same-origin',
           'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -155,7 +188,7 @@ async function serveAppFile(appId, relPath) {
       });
     }
 
-    return new Response(`Eclipse: file not found in storage — ${decoded}`, {
+    return new Response(`Eclipse: file not found in storage - ${decodedPath}`, {
       status: 404,
       headers: { 'Content-Type': 'text/plain' }
     });
